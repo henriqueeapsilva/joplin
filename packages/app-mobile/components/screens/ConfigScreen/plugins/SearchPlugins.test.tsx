@@ -1,16 +1,16 @@
 import * as React from 'react';
 import RepositoryApi, { InstallMode } from '@joplin/lib/services/plugins/RepositoryApi';
-import { afterAllCleanUp, afterEachCleanUp, setupDatabaseAndSynchronizer, switchClient } from '@joplin/lib/testing/test-utils';
+import { mockMobilePlatform, setupDatabaseAndSynchronizer, switchClient } from '@joplin/lib/testing/test-utils';
 
 import { render, screen, userEvent, waitFor } from '@testing-library/react-native';
 import '@testing-library/react-native/extend-expect';
 
 import SearchPlugins from './SearchPlugins';
 import Setting from '@joplin/lib/models/Setting';
-import PluginService, { PluginSettings } from '@joplin/lib/services/plugins/PluginService';
-import { useMemo } from 'react';
+import { PluginSettings } from '@joplin/lib/services/plugins/PluginService';
 import pluginServiceSetup from './testUtils/pluginServiceSetup';
 import newRepoApi from './testUtils/newRepoApi';
+import createMockReduxStore from '../../../../utils/testing/createMockReduxStore';
 
 interface WrapperProps {
 	repoApi: RepositoryApi;
@@ -22,14 +22,10 @@ interface WrapperProps {
 const noOpFunction = ()=>{};
 
 const SearchWrapper = (props: WrapperProps) => {
-	const serializedPluginSettings = useMemo(() => {
-		return PluginService.instance().serializePluginSettings(props.pluginSettings ?? {});
-	}, [props.pluginSettings]);
-
 	return (
 		<SearchPlugins
 			themeId={Setting.THEME_LIGHT}
-			pluginSettings={serializedPluginSettings}
+			pluginSettings={props.pluginSettings ?? {}}
 			repoApiInitialized={props.repoApiInitialized ?? true}
 			repoApi={props.repoApi}
 			onUpdatePluginStates={props.onUpdatePluginStates ?? noOpFunction}
@@ -47,10 +43,8 @@ describe('SearchPlugins', () => {
 	beforeEach(async () => {
 		await setupDatabaseAndSynchronizer(0);
 		await switchClient(0);
-		pluginServiceSetup();
+		pluginServiceSetup(createMockReduxStore());
 	});
-	afterEach(() => afterEachCleanUp());
-	afterAll(() => afterAllCleanUp());
 
 	it('should find results', async () => {
 		const repoApi = await newRepoApi(InstallMode.Default);
@@ -103,5 +97,26 @@ describe('SearchPlugins', () => {
 		await expectSearchResultCountToBe(1);
 		expect(screen.getByText(/ABC Sheet Music/i)).toBeTruthy();
 		expect(screen.queryByText(/backlink/i)).toBeNull();
+	});
+
+	it('should mark incompatible plugins as incompatible', async () => {
+		const mock = mockMobilePlatform('android');
+		const repoApi = await newRepoApi(InstallMode.Default);
+		render(<SearchWrapper repoApi={repoApi}/>);
+
+		const searchBox = screen.queryByPlaceholderText('Search');
+		const user = userEvent.setup();
+		await user.type(searchBox, 'abc');
+
+		await expectSearchResultCountToBe(1);
+		expect(screen.queryByText('Incompatible')).toBeNull();
+
+		await user.clear(searchBox);
+		await user.type(searchBox, 'side bar toggle');
+		await expectSearchResultCountToBe(1);
+		expect(await screen.findByText(/Note list and side bar/i)).toBeVisible();
+		expect(await screen.findByText('Incompatible')).toBeVisible();
+
+		mock.reset();
 	});
 });
