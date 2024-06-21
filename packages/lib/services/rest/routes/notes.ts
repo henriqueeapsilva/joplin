@@ -16,7 +16,7 @@ import Tag from '../../../models/Tag';
 import Resource from '../../../models/Resource';
 import htmlUtils from '../../../htmlUtils';
 import markupLanguageUtils from '../../../markupLanguageUtils';
-const mimeUtils = require('../../../mime-utils.js').mime;
+import * as mimeUtils from '../../../mime-utils';
 const md5 = require('md5');
 import HtmlToMd from '../../../HtmlToMd';
 const urlUtils = require('../../../urlUtils.js');
@@ -249,8 +249,6 @@ const isValidUrl = (url: string, isDataUrl: boolean, urlProtocol?: string, allow
 };
 
 export async function downloadMediaFile(url: string, fetchOptions?: FetchOptions, allowedProtocols?: string[]) {
-	logger.info('Downloading media file', url);
-
 	// The URL we get to download have been extracted from the Markdown document
 	url = markdownUtils.unescapeLinkUrl(url);
 
@@ -429,7 +427,7 @@ async function attachImageFromDataUrl(note: any, imageDataUrl: string, cropRect:
 
 export const extractNoteFromHTML = async (
 	requestNote: RequestNote,
-	requestId: number,
+	requestId: string,
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Old code before rule was applied
 	imageSizes: any,
 	fetchOptions?: FetchOptions,
@@ -443,10 +441,13 @@ export const extractNoteFromHTML = async (
 
 	const mediaFiles = await downloadMediaFiles(mediaUrls, fetchOptions, allowedProtocols);
 
-	logger.info(`Request (${requestId}): Creating resources from paths: ${mediaFiles.length}`);
-
+	logger.info(`Request (${requestId}): Creating resources from paths (resizing images): ${mediaFiles.length}`);
 	const resources = await createResourcesFromPaths(mediaFiles);
+
+	logger.info(`Request (${requestId}): Deleting temporary files`);
 	await removeTempFiles(resources);
+
+	logger.info(`Request (${requestId}): Replacing urls by resources`);
 	note.body = replaceUrlsByResources(note.markup_language, note.body, resources, imageSizes);
 
 	logger.info(`Request (${requestId}): Saving note...`);
@@ -499,7 +500,7 @@ export default async function(request: Request, id: string = null, link: string 
 		const allowedProtocolsForDownloadMediaFiles = ['http:', 'https:', 'file:', 'data:'];
 		const extracted = await extractNoteFromHTML(
 			requestNote,
-			requestId,
+			String(requestId),
 			imageSizes,
 			undefined,
 			allowedProtocolsForDownloadMediaFiles,
